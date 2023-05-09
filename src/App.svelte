@@ -44,7 +44,7 @@
     async function init() {
         audioContext = new AudioContext()
         await initMediaRecorder()
-        initAudioVisualization()
+        // initAudioVisualization()
         initialized = true
     }
 
@@ -95,7 +95,7 @@
         }
     }
 
-    function initAudioVisualization() {
+    function initAudioVisualization(audio) {
         const audioStreamSource = audioContext.createMediaElementSource(audio)
         audioAnalyser = audioContext.createAnalyser()
         audioAnalyser.fftSize = FFT_SIZE
@@ -153,12 +153,13 @@
         //recording is set to false in mediaRecorder.ondataavailable
         //so based on its value chunks are saved or discarded
         mediaRecorder.stop()
-        if(automaticRecording) mediaRecorder.start()
+        if (automaticRecording) mediaRecorder.start()
     }
 
     let restartTimeout = null
 
     function stopPlayback() {
+        if(!audio) return
         clearTimeout(restartTimeout)
         restartTimeout = null
         audio.pause()
@@ -243,13 +244,16 @@
     <Shortcuts {record} {stopRecording}/>
 {/if}
 
-<audio {src}
-       bind:this={audio}
-       bind:paused
-       bind:currentTime
-       on:ended={restart}
->
-</audio>
+{#if src}
+    <audio {src}
+           bind:this={audio}
+           bind:paused
+           bind:currentTime
+           on:ended={restart}
+           use:initAudioVisualization
+    >
+    </audio>
+{/if}
 
 <main>
     <div id="control">
