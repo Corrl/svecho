@@ -1,6 +1,7 @@
 <script>
     import {onDestroy, tick} from 'svelte'
     import Switch from "./lib/Switch.svelte";
+    import Shortcuts from "./lib/Shortcuts.svelte";
 
     const getUserMediaSupport = navigator.mediaDevices && navigator.mediaDevices.getUserMedia
 
@@ -138,15 +139,14 @@
     }
 
     async function record() {
-        if (!initialized || recording) return
+        if (recording) return
         recording = true
         stopPlayback()
         if (!automaticRecording && mediaRecorder.state === 'inactive') mediaRecorder.start()
-        //else: with automaticRecording recorder should already be running all the time
+        //else: with automaticRecording recorder is constantly restarted and so should already be running
     }
 
     function stopRecording() {
-        if (!initialized) return
         if (!recording) return
         //might be called by silenceDetector or Shortcuts
         //even though no recording is in progress
@@ -210,28 +210,6 @@
         }
     }
 
-    function handleKeydown(event) {
-        if (event.code === 'Escape' && (!paused || restartTimeout)) stopPlayback()
-        if (automaticRecording) return
-        if (event.code === 'Space') record()
-    }
-
-    function handleKeyup(event) {
-        if (automaticRecording) return
-        if (event.code === 'Space') stopRecording()
-    }
-
-    function handleManualRecordStart(event) {
-        if (!initialized || automaticRecording) return
-        event.preventDefault()
-        record()
-    }
-
-    function handleManualRecordStop() {
-        if (automaticRecording) return
-        stopRecording()
-    }
-
     function handleSwitchChange(event) {
         automaticRecording = event.target.checked
 
@@ -258,9 +236,11 @@
     }
 </script>
 
-<svelte:window on:keydown={handleKeydown}
-               on:keyup={handleKeyup}
-/>
+<svelte:window on:keydown={(e) => {if (e.code === 'Escape') stopPlayback()}}/>
+
+{#if initialized && !automaticRecording}
+    <Shortcuts {record} {stopRecording}/>
+{/if}
 
 <audio {src}
        bind:this={audio}
@@ -269,11 +249,8 @@
        on:ended={restart}
 >
 </audio>
-<main on:mousedown|preventDefault={handleManualRecordStart}
-      on:mouseup={handleManualRecordStop}
-      on:touchstart={handleManualRecordStart}
-      on:touchend={handleManualRecordStop}
->
+
+<main>
     <div id="control">
         <h1>
             Svecho
