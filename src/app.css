@@ -63,10 +63,8 @@ button {
 }
 
 
-button:focus,
 button:focus-visible {
-    box-shadow: 0 0 0 3px var(--svorange);
-    outline: none;
+    outline: 2px solid var(--svorange);
 }
 
 @media (prefers-color-scheme: light) {

@@ -22,7 +22,10 @@
 
     let audioContext
     let audioAnalyser
-    let dataArray = []
+    let audioDataArray = []
+
+    let micAnalyser
+    let micDataArray = []
 
     let audio
     let currentTime
@@ -36,7 +39,6 @@
     let soundDetected = false
     let recording = false
     let paused = true
-    let restartTimeout = null
 
     async function init() {
         audioContext = new AudioContext()
@@ -72,41 +74,20 @@
                 if (chunks.length === 0) return
                 const blob = new Blob(chunks, {type: mediaRecorder.mimeType})
                 chunks = []
-                if(src) URL.revokeObjectURL(src)
+                if (src) URL.revokeObjectURL(src)
                 src = URL.createObjectURL(blob)
-                audio.load()
+                // audio.load()
                 await tick()
-                play()
+                await play()
             }
 
             const audioStreamSource = audioContext.createMediaStreamSource(stream)
-            const analyser = audioContext.createAnalyser()
-            analyser.fftSize = FFT_SIZE
-            analyser.minDecibels = MIN_DECIBELS
-            audioStreamSource.connect(analyser)
-
-            const bufferLength = analyser.frequencyBinCount
-            dataArray = new Uint8Array(bufferLength)
-
-            const detectSound = () => {
-                if (automaticRecording) {
-                    analyser.getByteFrequencyData(dataArray)
-
-                    //optionally also visualize microphone input
-                    // dataArray = dataArray
-
-                    soundDetected = dataArray.some(d => d > 0)
-
-                    if (soundDetected) {
-                        startSoundDetectedTimer()
-                    } else {
-                        startSilenceDetectedTimer()
-                    }
-                }
-                requestAnimationFrame(detectSound)
-            };
-
-            detectSound()
+            micAnalyser = audioContext.createAnalyser()
+            micAnalyser.fftSize = FFT_SIZE
+            micAnalyser.minDecibels = MIN_DECIBELS
+            audioStreamSource.connect(micAnalyser)
+            const bufferLength = micAnalyser.frequencyBinCount
+            micDataArray = new Uint8Array(bufferLength)
 
         } catch (error) {
             console.error(`The following getUserMedia error occurred: ${error}`)
@@ -120,32 +101,61 @@
         audioStreamSource.connect(audioAnalyser)
         audioAnalyser.connect(audioContext.destination)
         const bufferLength = audioAnalyser.frequencyBinCount
-        dataArray = new Uint8Array(bufferLength)
+        audioDataArray = new Uint8Array(bufferLength)
     }
 
     $: if (!paused) setValues()
+    let setValuesRequestID
 
     function setValues() {
         if (paused) {
-            dataArray = dataArray.fill(0)
+            cancelAnimationFrame(setValuesRequestID)
+            audioDataArray = audioDataArray.fill(0)
             return
         }
-        audioAnalyser.getByteFrequencyData(dataArray)
-        dataArray = dataArray
-        requestAnimationFrame(setValues)
+        audioAnalyser.getByteFrequencyData(audioDataArray)
+        audioDataArray = audioDataArray
+        setValuesRequestID = requestAnimationFrame(setValues)
+    }
+
+    let detectSoundRequestID
+
+    function detectSound() {
+        if (!automaticRecording) {
+            cancelAnimationFrame(detectSoundRequestID)
+            return
+        }
+        micAnalyser.getByteFrequencyData(micDataArray)
+
+        soundDetected = micDataArray.some(d => d > 0)
+
+        if (soundDetected) {
+            startSoundDetectedTimer()
+        } else {
+            startSilenceDetectedTimer()
+        }
+        detectSoundRequestID = requestAnimationFrame(detectSound)
     }
 
     async function record() {
         if (!initialized || recording) return
         recording = true
         stopPlayback()
-        if (!automaticRecording) mediaRecorder.start()
+        if (!automaticRecording && mediaRecorder.state === 'inactive') mediaRecorder.start()
+        //else: with automaticRecording recorder should already be running all the time
     }
 
     function stopRecording() {
         if (!initialized) return
-        if (mediaRecorder.state === 'recording') mediaRecorder.stop()
+        if (!recording) return
+        //might be called by silenceDetector or Shortcuts
+        //even though no recording is in progress
+        //recording is set to false in mediaRecorder.ondataavailable
+        //so based on its value chunks are saved or discarded
+        mediaRecorder.stop()
     }
+
+    let restartTimeout = null
 
     function stopPlayback() {
         clearTimeout(restartTimeout)
@@ -155,18 +165,19 @@
     }
 
     function restart() {
-        restartTimeout = setTimeout(() => play(), PAUSE_BETWEEN_ECHOS)
+        restartTimeout = setTimeout(play, PAUSE_BETWEEN_ECHOS)
     }
 
     let restartRecordingInterval
 
     function initRecordingInterval() {
-        restartRecording()
         restartRecordingInterval = setInterval(restartRecording, RESTART_RECORDING_INTERVAL)
     }
 
     function restartRecording() {
         if (recording) return
+        //only 'recording' flag shows if intentional recording is active
+        //state checks are necessary, because recorder might or might not be recording because of
         if (mediaRecorder.state === 'recording') mediaRecorder.stop()
         if (mediaRecorder.state === 'inactive') mediaRecorder.start()
     }
@@ -223,12 +234,18 @@
 
     function handleSwitchChange(event) {
         automaticRecording = event.target.checked
+
+        //cancel any ongoing recording for clear start in new mode
+        //in case recording was in progress, it will be handled in mediaRecorder.ondataavailable
+        if (mediaRecorder.state === 'recording') mediaRecorder.stop()
+
         if (automaticRecording) {
+            mediaRecorder.start()
             initRecordingInterval()
+            detectSound()
         } else {
             clearInterval(restartRecordingInterval)
-            recording = false
-            if (mediaRecorder.state === 'recording') mediaRecorder.stop()
+            //detectSound is canceled via automaticRecording
         }
     }
 
@@ -285,26 +302,29 @@
                         Release to stop recording and listen to playback in a loop.
                     {/if}
                 </p>
-                <div id="control-btns"
-                     on:click|stopPropagation
-                     on:mousedown|stopPropagation
-                     on:mouseup|stopPropagation
-                     on:touchstart|stopPropagation
-                     on:touchend|stopPropagation
-                >
+                <div id="control-btns">
                     {#if recording}
                         <div class="recording">
                             REC
                         </div>
                     {:else if !paused || restartTimeout}
                         <button id="stop-btn"
-                                on:click={stopPlayback}
+                                on:click|stopPropagation={stopPlayback}
+                                on:mousedown|stopPropagation
+                                on:mouseup|stopPropagation
+                                on:touchstart|stopPropagation
+                                on:touchend|stopPropagation
                         >
                             ◼︎ STOP
                         </button>
                     {:else if src}
                         <button id="play-btn"
-                                on:click={play}>
+                                on:click|stopPropagation={play}
+                                on:mousedown|stopPropagation
+                                on:mouseup|stopPropagation
+                                on:touchstart|stopPropagation
+                                on:touchend|stopPropagation
+                        >
                             ▶︎ PLAY
                         </button>
                     {/if}
@@ -326,7 +346,7 @@
          bind:clientHeight={visualHeight}
     >
         <svg xmlns="http://www.w3.org/2000/svg">
-            {#each dataArray as d, index}
+            {#each audioDataArray as d, index}
                 <rect width={barWidth}
                       height={(d/255)*visualHeight}
                       x={index*barWidth}
@@ -397,6 +417,11 @@
         padding: 0;
         width: 6.6em;
         height: 2.8em;
+    }
+
+    #play-btn {
+        background: var(--grey);
+        color: var(--color-main);
     }
 
     #visual-wrapper {
