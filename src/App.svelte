@@ -4,7 +4,7 @@
 
     const getUserMediaSupport = navigator.mediaDevices && navigator.mediaDevices.getUserMedia
 
-    const MIN_DECIBELS = -55
+    const MIN_DECIBELS = -45
     const FFT_SIZE = 128
     const PAUSE_BETWEEN_ECHOS = 800
 
@@ -67,7 +67,7 @@
                     chunks = []
                 }
             }
-            mediaRecorder.onstop = async (e) => {
+            mediaRecorder.onstop = async () => {
                 // console.log('mediaRecorder stopped')
                 if (chunks.length === 0) return
                 const blob = new Blob(chunks, {type: mediaRecorder.mimeType})
