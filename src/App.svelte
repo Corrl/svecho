@@ -30,7 +30,7 @@
 
     let audio
     let currentTime
-    let src = ''
+    let src
 
     let visualWidth
     let visualHeight
@@ -153,6 +153,7 @@
         //recording is set to false in mediaRecorder.ondataavailable
         //so based on its value chunks are saved or discarded
         mediaRecorder.stop()
+        if(automaticRecording) mediaRecorder.start()
     }
 
     let restartTimeout = null
