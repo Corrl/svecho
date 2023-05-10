@@ -37,6 +37,18 @@
 
     $: barWidth = visualWidth / FFT_SIZE * 2
 
+    let canvas
+    let ctx
+
+    $: if (canvas && visualWidth && visualHeight) {
+        canvas.width = visualWidth
+        canvas.height = visualHeight
+    }
+
+    function initCtx(canvas) {
+        ctx = canvas.getContext('2d')
+    }
+
     let soundDetected = false
     let recording = false
     let paused = true
@@ -77,7 +89,6 @@
                 chunks = []
                 if (src) URL.revokeObjectURL(src)
                 src = URL.createObjectURL(blob)
-                // audio.load()
                 await tick()
                 await play()
             }
@@ -109,13 +120,22 @@
     let setValuesRequestID
 
     function setValues() {
-        if (paused) {
+        ctx.clearRect(0, 0, visualWidth, visualHeight)
+        ctx.fillStyle = '#ff3b00'
+        if (paused && !restartTimeout) {
             cancelAnimationFrame(setValuesRequestID)
             audioDataArray = audioDataArray.fill(0)
             return
         }
         audioAnalyser.getByteFrequencyData(audioDataArray)
-        audioDataArray = audioDataArray
+        audioDataArray.forEach((d, index) => {
+            const gap = 1
+            const x = index * barWidth + gap
+            const y = visualHeight - ((d / 255) * visualHeight)
+            const width = barWidth - 2 * gap
+            const height = (d / 255) * visualHeight
+            ctx.fillRect(x, y, width, height)
+        })
         setValuesRequestID = requestAnimationFrame(setValues)
     }
 
@@ -159,7 +179,7 @@
     let restartTimeout = null
 
     function stopPlayback() {
-        if(!audio) return
+        if (!audio) return
         clearTimeout(restartTimeout)
         restartTimeout = null
         audio.pause()
@@ -327,16 +347,10 @@
          bind:clientWidth={visualWidth}
          bind:clientHeight={visualHeight}
     >
-        <svg xmlns="http://www.w3.org/2000/svg">
-            {#each audioDataArray as d, index}
-                <rect width={barWidth}
-                      height={(d/255)*visualHeight}
-                      x={index*barWidth}
-                      y={visualHeight-((d/255)*visualHeight)}
-                      fill="#ff3b00"
-                />
-            {/each}
-        </svg>
+        <canvas bind:this={canvas}
+                use:initCtx
+        >
+        </canvas>
     </div>
 </main>
 
@@ -345,6 +359,7 @@
         height: 100%;
         display: grid;
         grid-template-rows:  5fr 1fr;
+        /*border: 1px solid purple;*/
     }
 
     h1 {
@@ -407,14 +422,17 @@
     }
 
     #visual-wrapper {
-        width: 100%;
-        height: 100%;
+        position: relative;
+        /*border: 1px solid orangered;*/
     }
 
-    svg {
-        display: block;
+    canvas {
+        position: absolute;
+        top: 0;
+        left: 0;
         width: 100%;
         height: 100%;
+        /*border: 1px solid blue;*/
     }
 
 </style>
