@@ -1,5 +1,5 @@
 <script>
-    import {onDestroy, tick} from 'svelte'
+    import {onDestroy} from 'svelte'
     import Switch from "./lib/Switch.svelte";
     import Shortcuts from "./lib/Shortcuts.svelte";
 
@@ -29,7 +29,6 @@
     let micDataArray = []
 
     let audio
-    let currentTime
     let src
 
     let visualWidth
@@ -56,15 +55,8 @@
     async function init() {
         audioContext = new AudioContext()
         await initMediaRecorder()
-        // initAudioVisualization()
         initialized = true
     }
-
-    onDestroy(() => {
-        clearInterval(restartRecordingInterval)
-        clearTimeout(soundDetectedTimer)
-        clearTimeout(silenceDetectedTimer)
-    })
 
     async function initMediaRecorder() {
         try {
@@ -82,15 +74,20 @@
                     chunks = []
                 }
             }
-            mediaRecorder.onstop = async () => {
+            mediaRecorder.onstop = () => {
                 // console.log('mediaRecorder stopped')
                 if (chunks.length === 0) return
                 const blob = new Blob(chunks, {type: mediaRecorder.mimeType})
                 chunks = []
                 if (src) URL.revokeObjectURL(src)
                 src = URL.createObjectURL(blob)
-                await tick()
-                await play()
+                if (!audio) {
+                    initAudio(src)
+                } else {
+                    audio.src = src
+                }
+                audio.load()
+                play()
             }
 
             const audioStreamSource = audioContext.createMediaStreamSource(stream)
@@ -106,7 +103,16 @@
         }
     }
 
-    function initAudioVisualization(audio) {
+    function initAudio(src) {
+        audio = new Audio(src)
+        audio.addEventListener('play', handlePauseChange)
+        //triggered when paused or end reached
+        audio.addEventListener('pause', handlePauseChange)
+        audio.addEventListener('ended', restart)
+        initAudioVisualization()
+    }
+
+    function initAudioVisualization() {
         const audioStreamSource = audioContext.createMediaElementSource(audio)
         audioAnalyser = audioContext.createAnalyser()
         audioAnalyser.fftSize = FFT_SIZE
@@ -122,7 +128,7 @@
     function setValues() {
         ctx.clearRect(0, 0, visualWidth, visualHeight)
         ctx.fillStyle = '#ff3b00'
-        if (paused && !restartTimeout) {
+        if (paused && !audioRepeatTimeout) {
             cancelAnimationFrame(setValuesRequestID)
             audioDataArray = audioDataArray.fill(0)
             return
@@ -176,18 +182,30 @@
         if (automaticRecording) mediaRecorder.start()
     }
 
-    let restartTimeout = null
+    let audioRepeatTimeout = null
 
     function stopPlayback() {
         if (!audio) return
-        clearTimeout(restartTimeout)
-        restartTimeout = null
+        clearTimeout(audioRepeatTimeout)
+        audioRepeatTimeout = null
         audio.pause()
-        currentTime = 0
+        audio.currentTime = 0
+    }
+
+    function handlePauseChange(event) {
+        paused = event.target.paused
+    }
+
+    async function play() {
+        try {
+            await audio.play()
+        } catch (error) {
+            console.error('ERROR playing audio', error)
+        }
     }
 
     function restart() {
-        restartTimeout = setTimeout(play, PAUSE_BETWEEN_ECHOS)
+        audioRepeatTimeout = setTimeout(play, PAUSE_BETWEEN_ECHOS)
     }
 
     let restartRecordingInterval
@@ -245,34 +263,25 @@
             detectSound()
         } else {
             clearInterval(restartRecordingInterval)
-            //detectSound is canceled via automaticRecording
+            //detectSound is canceled via 'automaticRecording'
         }
     }
 
-    async function play() {
-        try {
-            await audio.play()
-        } catch (error) {
-            console.error('ERROR playing audio', error)
-        }
-    }
+    onDestroy(() => {
+        clearInterval(restartRecordingInterval)
+        clearTimeout(soundDetectedTimer)
+        clearTimeout(silenceDetectedTimer)
+
+        audio.removeEventListener('play', handlePauseChange)
+        audio.removeEventListener('pause', handlePauseChange)
+        audio.removeEventListener('ended', restart)
+    })
 </script>
 
 <svelte:window on:keydown={(e) => {if (e.code === 'Escape') stopPlayback()}}/>
 
 {#if initialized && !automaticRecording}
     <Shortcuts {record} {stopRecording}/>
-{/if}
-
-{#if src}
-    <audio {src}
-           bind:this={audio}
-           bind:paused
-           bind:currentTime
-           on:ended={restart}
-           use:initAudioVisualization
-    >
-    </audio>
 {/if}
 
 <main>
@@ -309,7 +318,7 @@
                         <div class="recording">
                             REC
                         </div>
-                    {:else if !paused || restartTimeout}
+                    {:else if !paused || audioRepeatTimeout}
                         <button id="stop-btn"
                                 on:click|stopPropagation={stopPlayback}
                                 on:mousedown|stopPropagation
